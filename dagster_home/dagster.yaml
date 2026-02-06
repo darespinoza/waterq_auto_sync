@@ -1,0 +1,12 @@
+# Storage for run and event log data
+# SQLite by default in DAGSTER_HOME dir
+
+# Run coordinator for managing run queuing
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+
+# Run launcher for executing runs
+run_launcher:
+  module: dagster.core.launcher
+  class: DefaultRunLauncher
