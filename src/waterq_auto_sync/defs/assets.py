@@ -5,12 +5,16 @@ from  .tools import coerse_float
 import dagster as dg
 import pandas as pd
 import requests
-import math
 import time
+from datetime import date
 
 @dg.asset
 def pg_waterq_stations(context: dg.AssetExecutionContext,
                     postgres_rsc: PostgresResource,) -> pd.DataFrame:
+    """
+    Queries to Indice_Calidad database to get stations identifiers and names
+    """
+    
     engine = None
     try:
         # Get SQLAlchemy engine
@@ -32,11 +36,72 @@ def pg_waterq_stations(context: dg.AssetExecutionContext,
             engine.dispose()
             
 @dg.asset
-def bwmp_data_req (context: dg.AssetExecutionContext,
+def mfqb_data_req (context: dg.AssetExecutionContext,
                 pg_waterq_stations: pd.DataFrame) -> None:
     
-    df = pg_waterq_stations.head(2)
+    """
+    Requests data from ETAPA swmfbq endpoint, returns a DataFrame with results from all stations
+    """
     
-    for index, row in df.iterrows():
-        context.log.info(row)
-        time.sleep(60)
+    try:
+        # All stations DataFrame to store results
+        df_data = pd.DataFrame()
+        
+        # Current date to save CSV
+        today = date.today()
+        
+        # Create requests for all stations, transform to DataFrames and save a CSV result file
+        for index, row in pg_waterq_stations.iterrows():
+            # Prepare request's header and payload
+            headers = {"Content-Type":"application/json"}
+            payload = {"estacion": row['cod_estacion']}
+            
+            # Perform request
+            # Expected result keys: parametro, abreviacion, fecha (YYYY), valor
+            context.log.info(f"Requesting BMWP data for {row['estacion']} ({row['cod_estacion']}) station")
+            req = requests.post(URL_MFQB, headers=headers, json=payload)
+            
+            # Convert result to dict
+            req_dict = req.json()
+            context.log.info(f"JSON result first five key-value pairs:")
+            context.log.info(list(req_dict.items())[:5])
+            
+            # Transform dict to DataFrame
+            rows = []
+            for p in req_dict["parametros"]:
+                for m in p["mediciones"]:
+                    rows.append({
+                        "parametro": p["nombre"],
+                        "abreviacion": p["abreviacion"],
+                        # Add -mm-dd hh:mm:ss to create a timestamp
+                        "fecha": f"{m["fecha"]}{DATEF_MFQB}" if m["fecha"] else "",
+                        # Coerce not numeric values
+                        "valor": coerse_float(m["valor"]),   
+                    })
+            
+            # Convert rows to DataFrame
+            df = pd.DataFrame(rows)
+            
+            # Add station code and transform string to datetime
+            df['codigo'] = row['cod_estacion']
+            df["fecha"] = pd.to_datetime(df["fecha"])
+            context.log.info("DataFrame five head elements")
+            context.log.info(df.head(5))
+            
+            # Concat result DataFrame to all stations DataFrame
+            df_data = pd.concat([df_data, df], ignore_index=True)
+            
+            # Save as CSV
+            df_data.to_csv(f'{today.year}_{today.month}_swmfbq.csv', sep=';', encoding='utf-8', index=False)
+            
+            # Wait a bit and after perform next request
+            secs = 60
+            context.log.info(f"Waiting {secs} seconds for next request")
+            time.sleep(secs)
+
+        # Terminate asset execution
+        pass
+
+    except Exception as exc:
+        context.log.error(f"While requesting BMWP data from ETAPA.\n{str(exc)}")
+    
