@@ -58,41 +58,49 @@ def mfqb_data_req (context: dg.AssetExecutionContext,
             
             # Perform request
             # Expected result keys: parametro, abreviacion, fecha (YYYY), valor
-            context.log.info(f"Requesting BMWP data for {row['estacion']} ({row['cod_estacion']}) station")
-            req = requests.post(URL_MFQB, headers=headers, json=payload)
+            try:
+                context.log.info(f"Requesting BMWP data for {row['estacion']} ({row['cod_estacion']}) station")
+                req = requests.post(URL_MFQB, headers=headers, json=payload)
+                
+                # Convert result to dict
+                req_dict = req.json()
+                context.log.info(f"JSON result first five key-value pairs:")
+                context.log.info(list(req_dict.items())[:5])
+                
+                # Transform dict to DataFrame
+                rows = []
+                for p in req_dict["parametros"]:
+                    for m in p["mediciones"]:
+                        # Check if mediciones exist
+                        if m["fecha"] and m["valor"]:
+                            rows.append({
+                                "parametro": p["nombre"],
+                                "abreviacion": p["abreviacion"],
+                                # Add -mm-dd hh:mm:ss to create a timestamp
+                                "fecha": f"{m["fecha"]}{DATEF_MFQB}" if m["fecha"] else "",
+                                # Coerce not numeric values
+                                "valor": coerse_float(m["valor"]),   
+                            })
+                
+                
+                # Convert rows to DataFrame
+                df = pd.DataFrame(rows)
+                
+                # Add station code and transform string to datetime
+                if len(df) > 0:
+                    df['codigo'] = row['cod_estacion']
+                    df["fecha"] = pd.to_datetime(df["fecha"])
+                    context.log.info("DataFrame five head elements")
+                    context.log.info(df.head(5))
             
-            # Convert result to dict
-            req_dict = req.json()
-            context.log.info(f"JSON result first five key-value pairs:")
-            context.log.info(list(req_dict.items())[:5])
-            
-            # Transform dict to DataFrame
-            rows = []
-            for p in req_dict["parametros"]:
-                for m in p["mediciones"]:
-                    rows.append({
-                        "parametro": p["nombre"],
-                        "abreviacion": p["abreviacion"],
-                        # Add -mm-dd hh:mm:ss to create a timestamp
-                        "fecha": f"{m["fecha"]}{DATEF_MFQB}" if m["fecha"] else "",
-                        # Coerce not numeric values
-                        "valor": coerse_float(m["valor"]),   
-                    })
-            
-            # Convert rows to DataFrame
-            df = pd.DataFrame(rows)
-            
-            # Add station code and transform string to datetime
-            df['codigo'] = row['cod_estacion']
-            df["fecha"] = pd.to_datetime(df["fecha"])
-            context.log.info("DataFrame five head elements")
-            context.log.info(df.head(5))
+            except Exception as exc_req:
+                context.log.error(f"Error Extracting BMWP data for {row['cod_estacion']}.\n{str(exc)}")
             
             # Concat result DataFrame to all stations DataFrame
             df_data = pd.concat([df_data, df], ignore_index=True)
             
             # Save as CSV
-            df_data.to_csv(f'{today.year}_{today.month}_swmfbq.csv', sep=';', encoding='utf-8', index=False)
+            df_data.to_csv(f'{today.year}-{today.month}-{today.day}_swmfbq.csv', sep=';', encoding='utf-8', index=False)
             
             # Wait a bit and after perform next request
             secs = 60
@@ -103,5 +111,5 @@ def mfqb_data_req (context: dg.AssetExecutionContext,
         pass
 
     except Exception as exc:
-        context.log.error(f"While requesting BMWP data from ETAPA.\n{str(exc)}")
+        context.log.error(f"Error on Extract & Transform BMWP data from ETAPA.\n{str(exc)}")
     
