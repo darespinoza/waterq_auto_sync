@@ -52,13 +52,13 @@ def mfqb_data_raw (context: dg.AssetExecutionContext,
     """
     
     engine = None
+    # Endpoint request results
+    df_raw = pd.DataFrame(columns=['timestamp', 'codigo',  'response'])
+    
     try:
-        # All stations DataFrames request responses
-        df_raw = pd.DataFrame(columns=['timestamp', 'codigo',  'response'])
-        
         # Current timestamp for requests pkey
         now = datetime.now()
-        timestamp_string = now.strftime("%Y-%m-%d %H:%M:%S")
+        timestamp_string = now.strftime("%Y-%m-01 00:00:00")
         
         # Create requests for all stations, transform to DataFrames and save a CSV result file
         for index, row in pg_waterq_stations.iterrows():
@@ -73,7 +73,7 @@ def mfqb_data_raw (context: dg.AssetExecutionContext,
                 req = requests.post(URL_MFQB, headers=headers, json=payload)
                 
                 # Add a new row to DataFrame
-                df_raw.loc[len(df_raw)] = [timestamp_string, row['cod_estacion'], req] 
+                df_raw.loc[len(df_raw)] = [timestamp_string, row['cod_estacion'], req.text] 
             
             except Exception as exc_req:
                 context.log.error(f"Error requesting swmfbq endpoint for {row['cod_estacion']} .\n{str(exc)}")
@@ -85,6 +85,7 @@ def mfqb_data_raw (context: dg.AssetExecutionContext,
 
         # Upload each station response result (raw data)
         if len(df_raw) > 0:
+            context.log.info(df_raw)
             # Get SQLAlchemy engine
             engine = postgres_rsc.get_engine()
             
@@ -104,7 +105,7 @@ def mfqb_data_raw (context: dg.AssetExecutionContext,
             stmt = insert(etapa_swmfbq_raw).values(records)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["timestamp", "codigo"],
-                set_={
+                set_= {
                     "response": stmt.excluded.response,
                 }
             )
@@ -118,7 +119,7 @@ def mfqb_data_raw (context: dg.AssetExecutionContext,
 
     except Exception as exc:
         context.log.error(f"Error Extracting swmfbq data from ETAPA.\n{str(exc)}")
-        return pd.DataFrame
+        return df_raw
     finally:
         # Dipose engine
         if engine:
