@@ -1,6 +1,8 @@
 import dagster as dg
 from .assets import (
     pg_waterq_stations,
+)
+from .bmwp_assets import(
     mfqb_data_raw,
     mfqb_data_bronze,
     mfqb_data_silver,
