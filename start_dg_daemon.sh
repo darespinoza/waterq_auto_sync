@@ -3,6 +3,6 @@ DG_HOME="$(pwd)/dagster_home"
 mkdir -p "${DG_HOME}"
 export DAGSTER_HOME="${DG_HOME}"
 
-# Run Dagster daemon using the
+# Run Dagster daemon using the same workspace file
 pkill -f dagster-daemon
-dagster-daemon run -w "$(pwd)/src/waterq_auto_sync/workspace.yaml"
+./.venv/bin/dagster-daemon run -w "$(pwd)/src/waterq_auto_sync/workspace.yaml"

@@ -5,4 +5,4 @@ export DAGSTER_HOME="${DG_HOME}"
 
 # Start Dagster UI
 pkill -f dagster-webserver
-dagster-webserver -h 0.0.0.0 -p 3000 -w "$(pwd)/src/waterq_auto_sync/workspace.yaml"
+./.venv/bin/dagster-webserver -h 0.0.0.0 -p 3000 -w "$(pwd)/src/waterq_auto_sync/workspace.yaml"
