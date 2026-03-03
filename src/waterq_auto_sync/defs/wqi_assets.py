@@ -1,6 +1,6 @@
 from .constants import (
-    URL_MFQB,
-    DATEF_MFQB,
+    URL_MIE,
+    DATEF_MIE,
 )
 from .resources import PostgresResource
 from  .tools import coerse_float
@@ -21,15 +21,15 @@ import time
 import json
 
 @dg.asset(
-    group_name="etapa_to_ierse_bmwp",
+    group_name="etapa_to_ierse_wqi",
 )
-def mfqb_data_raw (context: dg.AssetExecutionContext,
+def mfqagl_data_raw (context: dg.AssetExecutionContext,
                 pg_waterq_stations: pd.DataFrame,
                 postgres_rsc: PostgresResource,) -> pd.DataFrame:
     
     """
-    Requests data from ETAPA swmfbq endpoint, returns a DataFrame with results for all stations.
-    Upload request results to etapa_swmfbq_raw table using UPSERT operations.
+    Requests data from ETAPA swmfqagl endpoint, returns a DataFrame with results for all stations.
+    Upload request results to etapa_swmfqagl_raw table using UPSERT operations.
     """
     
     engine = None
@@ -50,14 +50,14 @@ def mfqb_data_raw (context: dg.AssetExecutionContext,
             # Perform request
             # Expected result keys: parametro, abreviacion, fecha (YYYY), valor
             try:
-                context.log.info(f"Requesting swmfbq endpoint for {row['cod_estacion']} - {row['estacion']} data")
-                req = requests.post(URL_MFQB, headers=headers, json=payload)
+                context.log.info(f"Requesting swmfqagl endpoint for {row['cod_estacion']} - {row['estacion']} data")
+                req = requests.post(URL_MIE, headers=headers, json=payload)
                 
                 # Add a new row to results DataFrame
                 df_raw.loc[len(df_raw)] = [timestamp_string, row['cod_estacion'], req.text] 
             
             except Exception as exc_req:
-                context.log.error(f"Error requesting swmfbq endpoint for {row['cod_estacion']} data.\n{str(exc)}")
+                context.log.error(f"Error requesting swmfqagl endpoint for {row['cod_estacion']} data.\n{str(exc)}")
             
             # Wait a bit beetween requests
             secs = 60
@@ -73,10 +73,10 @@ def mfqb_data_raw (context: dg.AssetExecutionContext,
             # Get SQLAlchemy engine
             engine = postgres_rsc.get_engine()
             
-            # Reflect etapa_swmfbq_raw table
+            # Reflect etapa_swmfqagl_raw table
             metadata = MetaData()
-            etapa_swmfbq_raw = Table(
-                "etapa_swmfbq_raw",
+            etapa_swmfqagl_raw = Table(
+                "etapa_swmfqagl_raw",
                 metadata,
                 schema="public",
                 autoload_with=engine
@@ -86,7 +86,7 @@ def mfqb_data_raw (context: dg.AssetExecutionContext,
             records = df_raw.to_dict(orient="records")
 
             # Build an UPSERT statement
-            stmt = insert(etapa_swmfbq_raw).values(records)
+            stmt = insert(etapa_swmfqagl_raw).values(records)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["timestamp", "codigo"],
                 set_= {
@@ -102,7 +102,7 @@ def mfqb_data_raw (context: dg.AssetExecutionContext,
         return df_raw
 
     except Exception as exc:
-        context.log.error(f"Error Extracting swmfbq data from ETAPA.\n{str(exc)}")
+        context.log.error(f"Error Extracting swmfqagl data from ETAPA.\n{str(exc)}")
         return df_raw
     finally:
         # Dipose engine
@@ -110,15 +110,15 @@ def mfqb_data_raw (context: dg.AssetExecutionContext,
             engine.dispose()
 
 @dg.asset(
-    group_name="etapa_to_ierse_bmwp",
+    group_name="etapa_to_ierse_wqi",
 )
-def mfqb_data_bronze (context: dg.AssetExecutionContext,
-                mfqb_data_raw: pd.DataFrame,
+def mfqagl_data_bronze (context: dg.AssetExecutionContext,
+                mfqagl_data_raw: pd.DataFrame,
                 postgres_rsc: PostgresResource,) -> pd.DataFrame:
     """
     Transform raw responses from each station to a structured DataFrame.
     Perform data cleaning to check if values-dates exists and coerce numeric values.
-    Uses an UPSERT statement on etapa_swmfbq_data table.
+    Uses an UPSERT statement on etapa_swmfqagl_data table.
     """
     
     engine = None
@@ -126,7 +126,7 @@ def mfqb_data_bronze (context: dg.AssetExecutionContext,
     df_transf = pd.DataFrame()
     try:
         # Transform each raw response
-        for index, row in mfqb_data_raw.iterrows():
+        for index, row in mfqagl_data_raw.iterrows():
             
             try:
                 # Load response text as JSON
@@ -142,7 +142,7 @@ def mfqb_data_bronze (context: dg.AssetExecutionContext,
                                 "parametro": p["nombre"],
                                 "abreviacion": p["abreviacion"],
                                 # Add -mm-dd hh:mm:ss to create a timestamp
-                                "fecha": f"{m["fecha"]}{DATEF_MFQB}" if m["fecha"] else "",
+                                "fecha": m["fecha"] if m["fecha"] else "",
                                 # Coerce not numeric values
                                 "valor": coerse_float(m["valor"]),   
                             })
@@ -153,14 +153,14 @@ def mfqb_data_bronze (context: dg.AssetExecutionContext,
                 # Add station code and transform string to datetime
                 if len(df) > 0:
                     df['codigo'] = row['codigo']
-                    df["fecha"] = pd.to_datetime(df["fecha"])
+                    df["fecha"] = pd.to_datetime(df["fecha"], format=DATEF_MIE)
                     
                 # Concat result DataFrame to all stations DataFrame
                 df_transf = pd.concat([df_transf, df], ignore_index=True)
             except Exception as exc_t:
-                context.log.error(f"Error parsing swmfbq endpoint response for {row['codigo']}.\n{str(exc_t)}")
+                context.log.error(f"Error parsing swmfqagl endpoint response for {row['codigo']}.\n{str(exc_t)}")
         
-        # Upload swmfbq bronze data to IERSE database
+        # Upload swmfqagl bronze data to IERSE database
         if len(df_transf) > 0:
             # Visualize DataFrame
             context.log.info(df_transf.dtypes)
@@ -169,10 +169,10 @@ def mfqb_data_bronze (context: dg.AssetExecutionContext,
             # Get SQLAlchemy engine
             engine = postgres_rsc.get_engine()
             
-            # Reflect etapa_swmfbq_data table
+            # Reflect etapa_swmfqagl_data table
             metadata = MetaData()
-            etapa_swmfbq_data = Table(
-                "etapa_swmfbq_data",
+            etapa_swmfqagl_data = Table(
+                "etapa_swmfqagl_data",
                 metadata,
                 schema="public",
                 autoload_with=engine
@@ -182,7 +182,7 @@ def mfqb_data_bronze (context: dg.AssetExecutionContext,
             records = df_transf.to_dict(orient="records")
             
             # Build an UPSERT statement
-            stmt = insert(etapa_swmfbq_data).values(records)
+            stmt = insert(etapa_swmfqagl_data).values(records)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["codigo", "parametro", "fecha"],
                 set_= {
@@ -198,7 +198,7 @@ def mfqb_data_bronze (context: dg.AssetExecutionContext,
         # Return DataFrame
         return df_transf
     except Exception as exc:
-        context.log.error(f"Error Transforming swmfbq data from ETAPA.\n{str(exc)}")
+        context.log.error(f"Error Transforming swmfqagl data from ETAPA.\n{str(exc)}")
         return df_transf
     finally:
         # Dipose engine
@@ -206,55 +206,55 @@ def mfqb_data_bronze (context: dg.AssetExecutionContext,
             engine.dispose()
             
 @dg.asset(
-    group_name="etapa_to_ierse_bmwp",
+    group_name="etapa_to_ierse_wqi",
 )
-def mfqb_data_silver (context: dg.AssetExecutionContext,
-                mfqb_data_bronze: pd.DataFrame,
+def mfqagl_data_silver (context: dg.AssetExecutionContext,
+                mfqagl_data_bronze: pd.DataFrame,
                 postgres_rsc: PostgresResource,) -> None:
     """
-    Use BMWP parametro data to create a DataFrame that matches IERSE registro_bmwp database table.
+    Use WQI parametro data to create a DataFrame that matches IERSE registro_wqi database table.
     Add required columns and drop not used ones.
-    Perform an UPSERT operations over registro_bmwp table.
+    Perform an UPSERT operations over registro_wqi table.
     """
     
     
     engine = None
     try:
-        # Pick BMWP data only
-        df_bmwp = mfqb_data_bronze[mfqb_data_bronze['parametro'] == 'BMWP']
+        # Pick wqi data only
+        df_wqi = mfqagl_data_bronze[mfqagl_data_bronze['parametro'] == 'WQI']
         
         # Rename columns to match IERSE database table
-        df_bmwp.rename(columns={'codigo': 'cod_estacion',
+        df_wqi.rename(columns={'codigo': 'cod_estacion',
                                 'fecha': 'fecha_reg',
-                                'valor': 'valorbmwp'}, inplace=True)   
+                                'valor': 'valorwqi'}, inplace=True)   
         
         # Add columns to match IERSE database table
-        df_bmwp['origen'] = 'waterq_auto_sync'
-        df_bmwp['habilitado'] = True
+        df_wqi['origen'] = 'waterq_auto_sync'
+        df_wqi['habilitado'] = True
         
         # Remove unused columns
-        df_bmwp.drop(columns=['parametro', 'abreviacion'], inplace=True)
+        df_wqi.drop(columns=['parametro', 'abreviacion'], inplace=True)
         
-        # Upload BMWP silver data to IERSE database
-        if len(df_bmwp) > 0:
+        # Upload wqi silver data to IERSE database
+        if len(df_wqi) > 0:
             # Visualize DataFrame
-            context.log.info(df_bmwp.dtypes)
-            context.log.info(df_bmwp.head())
+            context.log.info(df_wqi.dtypes)
+            context.log.info(df_wqi.head())
             
             # Get SQLAlchemy engine
             engine = postgres_rsc.get_engine()
             
-            # Reflect etapa_swmfbq_data table
+            # Reflect etapa_swmfqagl_data table
             metadata = MetaData()
             registro_bwmp = Table(
-                "registro_bmwp",
+                "registro_wqi",
                 metadata,
                 schema="public",
                 autoload_with=engine
             )
 
             # Convert DataFrame to list of dicts
-            records = df_bmwp.to_dict(orient="records")
+            records = df_wqi.to_dict(orient="records")
             
             # Build an UPSERT statement
             stmt = insert(registro_bwmp).values(records)
@@ -263,7 +263,7 @@ def mfqb_data_silver (context: dg.AssetExecutionContext,
                 set_= {
                     "habilitado": stmt.excluded.habilitado,
                     "origen": stmt.excluded.origen,
-                    "valorbmwp": stmt.excluded.valorbmwp,
+                    "valorwqi": stmt.excluded.valorwqi,
                 }
             )
 
@@ -275,7 +275,7 @@ def mfqb_data_silver (context: dg.AssetExecutionContext,
         pass
         
     except Exception as exc:
-        context.log.error(f"Error upLoading BMWP data from ETAPA to IERSE.\n{str(exc)}")
+        context.log.error(f"Error upLoading WQI data from ETAPA to IERSE.\n{str(exc)}")
         pass
     finally:
         # Dipose engine
