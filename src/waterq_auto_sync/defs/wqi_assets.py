@@ -246,7 +246,7 @@ def mfqagl_data_silver (context: dg.AssetExecutionContext,
             
             # Reflect etapa_swmfqagl_data table
             metadata = MetaData()
-            registro_bwmp = Table(
+            registro_wqi = Table(
                 "registro_wqi",
                 metadata,
                 schema="public",
@@ -257,7 +257,7 @@ def mfqagl_data_silver (context: dg.AssetExecutionContext,
             records = df_wqi.to_dict(orient="records")
             
             # Build an UPSERT statement
-            stmt = insert(registro_bwmp).values(records)
+            stmt = insert(registro_wqi).values(records)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["cod_estacion", "fecha_reg"],
                 set_= {
