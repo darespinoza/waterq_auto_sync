@@ -134,17 +134,17 @@ def mfqagl_data_bronze (context: dg.AssetExecutionContext,
                 
                 # Transform dict to DataFrame rows
                 rows = []
-                for p in r_resp["parametros"]:
-                    for m in p["mediciones"]:
+                for p in r_resp['parametros']:
+                    for m in p['mediciones']:
                         # Check if mediciones exist
-                        if m["fecha"] and m["valor"]:
+                        if m['fecha'] and m['valor']:
                             rows.append({
-                                "parametro": p["nombre"],
-                                "abreviacion": p["abreviacion"],
+                                'parametro': p['nombre'],
+                                'abreviacion': p['abreviacion'],
                                 # Add -mm-dd hh:mm:ss to create a timestamp
-                                "fecha": m["fecha"] if m["fecha"] else "",
+                                'fecha': m['fecha'] if m['fecha'] else "",
                                 # Coerce not numeric values
-                                "valor": coerse_float(m["valor"]),   
+                                'valor': coerse_float(m['valor']),   
                             })
                 
                 # Convert rows to DataFrame
@@ -153,7 +153,7 @@ def mfqagl_data_bronze (context: dg.AssetExecutionContext,
                 # Add station code and transform string to datetime
                 if len(df) > 0:
                     df['codigo'] = row['codigo']
-                    df["fecha"] = pd.to_datetime(df["fecha"], format=DATEF_MIE)
+                    df['fecha'] = pd.to_datetime(df['fecha'], format=DATEF_MIE)
                     
                 # Concat result DataFrame to all stations DataFrame
                 df_transf = pd.concat([df_transf, df], ignore_index=True)
